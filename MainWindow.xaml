@@ -67,7 +67,7 @@
                                VerticalAlignment="Bottom" 
                                HorizontalAlignment="Right" 
                                Foreground="#FFFFFFFF" 
-                               FontSize="16"
+                               FontSize="20"
                                Grid.ColumnSpan="2"/>
                     </Grid>
                 </Grid>
@@ -108,13 +108,13 @@
         </Grid>
         <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <Label Grid.Column="1" Name="progressLabel" FontSize="16" Foreground="#FFFFFFFF" VerticalAlignment="Center" Margin="10,0"/>
-            <Label Grid.Column="2" Name="netSpeedLabel" HorizontalContentAlignment="Right" FontSize="16" Foreground="#FFFFFFFF" VerticalAlignment="Center" Margin="10,0"/>
+            <Label Grid.Column="0" Name="netSpeedLabel" HorizontalContentAlignment="Left" FontSize="16" Foreground="#FFFFFFFF" VerticalAlignment="Center" Margin="10,0"/>
+            <Label Grid.Column="2" Name="progressLabel" FontSize="16" Foreground="#FFFFFFFF" VerticalAlignment="Center" Margin="10,0"/>
         </Grid>
-        <Button Grid.Row="2" Name="launchGameButton" Content="Play" IsEnabled="False" FontSize="16" Height="35" Width="150" VerticalAlignment="Bottom" Background="#FFDDDDDD" Click="LaunchGameButton_Click" Margin="0,0,0,10" HorizontalAlignment="Center"/>
+        <Button Grid.Row="2" Name="launchGameButton" Content="Play" IsEnabled="False" FontSize="20" Height="35" Width="150" VerticalAlignment="Bottom" Background="#FFDDDDDD" Click="LaunchGameButton_Click" Margin="0,0,0,10" HorizontalAlignment="Center" FontWeight="Bold"/>
     </Grid>
 </Window>

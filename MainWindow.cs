@@ -14,19 +14,34 @@ using System.Windows.Threading;
 using Microsoft.Web.WebView2.Wpf;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using System.Security.Principal;
+
+
 
 namespace C2COMMUNITY_Mod_Launcher
 {
     public partial class MainWindow : Window, IComponentConnector
     {
+        //Start of Defines
+        private const string MD5_FILE_PATH = "/openspymod/openspymodfiles/md5sum.php";
+        private const string ZIP_FILE_PATH = "/openspymod/openspymod.zip";
+        private const string WEBVIEW_DLL_PATH = "/openspymod/WebView2Loader.dll";
+        private const string DEFAULT_SERVER_URL = "http://lb.crysis2.epicgamer.org";
+        private const string GAME_MOD_FOLDER = "OpenSpy";
+        private const string SERVER_MOD_PATH = "/openspymod/openspymodfiles/";
+        private const string SERVER_LIST_SOURCE_URL = "http://beta.openspy.net/api/servers/capricorn";
+        private const string GAME_STARTER_FILE_NAME = "Crysis 2 - OpenSpy.bat";
+        //End of Defines
+
         private string _serverBaseUrl;
         private readonly string _bin32Folder;
-        private readonly string _openSpyFolder;
+        private readonly string _modSpyFolder;
         private string _md5Url;
         private string _zipUrl;
         private string _WebViewDLLUrl;
         private readonly string _webView2LoaderPath;
         private long _totalDownloadSize;
+        private bool _isAdministrator;
         private long _downloadedSize;
         private string _jsonVersion;
         private readonly DispatcherTimer _serverTimer;
@@ -37,11 +52,13 @@ namespace C2COMMUNITY_Mod_Launcher
         {
             InitializeComponent();
             _bin32Folder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "bin32");
-            _openSpyFolder = AppDomain.CurrentDomain.BaseDirectory;
-            _webView2LoaderPath = Path.Combine(_openSpyFolder, "WebView2Loader.dll");
+            _modSpyFolder = AppDomain.CurrentDomain.BaseDirectory;
+            _webView2LoaderPath = Path.Combine(_modSpyFolder, "WebView2Loader.dll");
+            _isAdministrator = IsAdministrator();
+            UpdateWindowTitle();
             Servers = new ObservableCollection<Server>();
             serverListView.ItemsSource = Servers;
-                _ = UpdateServerList();
+            _ = UpdateServerList();
             _serverTimer = new DispatcherTimer
             {
                 Interval = TimeSpan.FromSeconds(15)
@@ -57,95 +74,100 @@ namespace C2COMMUNITY_Mod_Launcher
             {
                 using var client = new HttpClient();
                 _serverBaseUrl = await client.GetStringAsync("https://raw.githubusercontent.com/BerkayKN/crysis2-mp-launcher/main/server/server.txt");
-                _serverBaseUrl = string.IsNullOrWhiteSpace(_serverBaseUrl) ? "http://lb.crysis2.epicgamer.org" : _serverBaseUrl.Trim().TrimEnd('/');
+                _serverBaseUrl = string.IsNullOrWhiteSpace(_serverBaseUrl) ? DEFAULT_SERVER_URL : _serverBaseUrl.Trim().TrimEnd('/');
             }
             catch
             {
-                _serverBaseUrl = "http://lb.crysis2.epicgamer.org";
+                _serverBaseUrl = DEFAULT_SERVER_URL;
             }
-            _md5Url = $"{_serverBaseUrl}/openspymod/openspymodfiles/md5sum.php";
-            _zipUrl = $"{_serverBaseUrl}/openspymod/openspymod.zip";
-            _WebViewDLLUrl = $"{_serverBaseUrl}/openspymod/WebView2Loader.dll";
+            _md5Url = $"{_serverBaseUrl}" + MD5_FILE_PATH;
+            _zipUrl = $"{_serverBaseUrl}{ZIP_FILE_PATH}";
+            _WebViewDLLUrl = $"{_serverBaseUrl}{WEBVIEW_DLL_PATH}";
         }
+
+        private bool IsAdministrator()
+        {
+            using (WindowsIdentity identity = WindowsIdentity.GetCurrent())
+            {
+                WindowsPrincipal principal = new WindowsPrincipal(identity);
+                return principal.IsInRole(WindowsBuiltInRole.Administrator);
+            }
+        }
+
+        private void UpdateWindowTitle()
+        {
+            if (!_isAdministrator)
+            {
+                this.Title += " (Not Administrator)";
+            }
+        }
+
 
         private async void CheckDirectoryStructure()
         {
             launchGameButton.IsEnabled = false;
-            ChangelogTab.IsEnabled = false;
+            ChangelogTab.IsEnabled = true; // Previously was false, new ui changes mostly fixed the freezing issue
             if (!Directory.Exists(_bin32Folder))
             {
-                string message = File.Exists(Path.Combine(_openSpyFolder, "Crysis2.exe"))
+                string message = File.Exists(Path.Combine(_modSpyFolder, "Crysis2.exe"))
                     ? "The launcher is inside Bin32 folder. Please place the launcher in the Crysis 2 root folder."
                     : "The launcher is outside Crysis 2 root folder. Please place the launcher in the Crysis 2 root folder.";
                 MessageBox.Show(message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 Application.Current.Shutdown();
                 return;
             }
-            
-            UpdateStatusLabel("Checking mod files...");
+
+            await UpdateStatusLabelAsync("Checking mod files...");
             await InitializeAsync();
-            await CheckAndUpdateModFiles();
+            
+            var progress = new Progress<string>(message => statusLabel.Content = message);
+            await Task.Run(() => CheckAndUpdateModFiles(progress));
+            
             launchGameButton.IsEnabled = true;
         }
 
-    
-        //private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
-        //{
-        //    if (e.NewSize.Width / e.NewSize.Height != e.PreviousSize.Width / e.PreviousSize.Height)
-        //    {
-        //        double ratio = MinWidth / MinHeight;
-        //        if (e.NewSize.Width / e.NewSize.Height > ratio)
-        //        {
-        //            this.Width = e.NewSize.Height * ratio;
-        //        }
-        //        else
-        //        {
-        //            this.Height = e.NewSize.Width / ratio;
-        //        }
-        //    }
-        //}
-
-        private async Task CheckAndUpdateModFiles()
+        private async Task CheckAndUpdateModFiles(IProgress<string> progress)
         {
             try
             {
                 _downloadedSize = 0;
+                progress.Report("Downloading file list...");
                 string md5Data = await DownloadStringAsync(_md5Url);
-                UpdateStatusLabel("Parsing file list data...");
+                progress.Report("Parsing file list data...");
                 var fileHashes = ParseMd5Data(md5Data);
                 if (fileHashes == null || fileHashes.Count == 0)
                 {
-                    UpdateStatusLabel("Failed to load file list data. Aborting.");
+                    progress.Report("Failed to load file list data. Aborting.");
                     return;
                 }
 
                 var jsonData = JsonConvert.DeserializeObject<dynamic>(md5Data);
                 bool freshInstall = jsonData.freshinstallzip == "1";
-                if (!Directory.Exists(Path.Combine(_openSpyFolder, "Mods", "OpenSpy")) && freshInstall)
+                if (!Directory.Exists(Path.Combine(_modSpyFolder, "Mods", GAME_MOD_FOLDER)) && freshInstall)
                 {
-                    UpdateStatusLabel("Extracting ZIP file...");
-                    await DownloadAndExtractZipAsync(_zipUrl, _openSpyFolder);
+                    progress.Report("Extracting ZIP file...");
+                    await DownloadAndExtractZipAsync(_zipUrl, _modSpyFolder, progress);
                     return;
                 }
 
                 long existingFilesSize = CalculateExistingFilesSize(fileHashes);
                 _totalDownloadSize -= existingFilesSize;
-                UpdateStatusLabel($"Total download size after excluding existing files: {(_totalDownloadSize / 1048576.0):F2} MB");
+                progress.Report($"Total download size after excluding existing files: {(_totalDownloadSize / 1048576.0):F2} MB");
 
                 foreach (var fileHash in fileHashes)
                 {
                     string url = fileHash.Key;
                     string hash = fileHash.Value;
-                    string relativePath = url.Replace($"{_serverBaseUrl}/openspymod/openspymodfiles/", "").Replace('/', '\\');
-                    string filePath = Path.Combine(_openSpyFolder, relativePath);
-                    UpdateStatusLabel($"Comparing MD5 hash for {Path.GetFileName(filePath)}...");
+                    string relativePath = url.Replace($"{_serverBaseUrl}{SERVER_MOD_PATH}", "").Replace('/', '\\');
+                    string filePath = Path.Combine(_modSpyFolder, relativePath);
+                    progress.Report($"Comparing MD5 hash for {Path.GetFileName(filePath)}...");
 
                     if (File.Exists(filePath) && ComputeMD5(filePath) == hash) continue;
                     await DownloadFileAsync(url, filePath);
                 }
 
-                UpdateStatusLabel("Comparing installed files to file list...");
-                DeleteFilesNotInMd5List(fileHashes);
+                progress.Report("Comparing installed files to file list...");
+                DeleteFilesNotInMd5List(fileHashes, progress);
 
                 if (!File.Exists(_webView2LoaderPath))
                 {
@@ -158,15 +180,22 @@ namespace C2COMMUNITY_Mod_Launcher
                     catch { /* Ignore errors */ }
                 }
 
-                UpdateProgressBar(0, 0, 0, 0, string.Empty);
-                HideDownloadLabels();
-                ChangelogTab.IsEnabled = true;
-                UpdateStatusLabel("Ready");
-                UpdateVersionLabel();
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    UpdateProgressBar(0, 0, 0, 0, string.Empty);
+                    HideDownloadLabels();
+                    UpdateVersionLabel();
+                    ChangelogTab.IsEnabled = true;
+                });
+                
+                progress.Report("Ready to play");
             }
             catch (HttpRequestException ex)
             {
-                MessageBox.Show($"HTTP request error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    MessageBox.Show($"HTTP request error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                });
             }
         }
 
@@ -174,13 +203,16 @@ namespace C2COMMUNITY_Mod_Launcher
         {
             return fileHashes.Sum(fileHash =>
             {
-                string relativePath = fileHash.Key.Replace($"{_serverBaseUrl}/openspymod/openspymodfiles/", "").Replace('/', '\\');
-                string filePath = Path.Combine(_openSpyFolder, relativePath);
+                string relativePath = fileHash.Key.Replace($"{_serverBaseUrl}{SERVER_MOD_PATH}", "").Replace('/', '\\');
+                string filePath = Path.Combine(_modSpyFolder, relativePath);
                 return File.Exists(filePath) ? new FileInfo(filePath).Length : 0;
             });
         }
 
-        private void UpdateStatusLabel(string message) => Dispatcher.Invoke(() => statusLabel.Content = message);
+        private Task UpdateStatusLabelAsync(string message)
+        {
+            return Dispatcher.InvokeAsync(() => statusLabel.Content = message).Task;
+        }
 
         private void HideDownloadLabels() => Dispatcher.Invoke(() =>
         {
@@ -189,19 +221,19 @@ namespace C2COMMUNITY_Mod_Launcher
             progressLabel.Content = string.Empty;
         });
 
-        private void DeleteFilesNotInMd5List(Dictionary<string, string> fileHashes)
+        private void DeleteFilesNotInMd5List(Dictionary<string, string> fileHashes, IProgress<string> progress)
         {
-            string openSpyModFolder = Path.Combine(_openSpyFolder, "Mods", "OpenSpy");
-            foreach (string filePath in Directory.EnumerateFiles(openSpyModFolder, "*", SearchOption.AllDirectories))
+            string modSpyModFolder = Path.Combine(_modSpyFolder, "Mods", GAME_MOD_FOLDER);
+            foreach (string filePath in Directory.EnumerateFiles(modSpyModFolder, "*", SearchOption.AllDirectories))
             {
-                string relativePath = filePath.Replace(openSpyModFolder, "").TrimStart(Path.DirectorySeparatorChar).Replace('\\', '/');
-                string url = Uri.UnescapeDataString($"{_serverBaseUrl}/openspymod/openspymodfiles/Mods/OpenSpy/{Uri.EscapeDataString(relativePath)}");
+                string relativePath = filePath.Replace(modSpyModFolder, "").TrimStart(Path.DirectorySeparatorChar).Replace('\\', '/');
+                string url = Uri.UnescapeDataString($"{_serverBaseUrl}{SERVER_MOD_PATH}Mods/{GAME_MOD_FOLDER}/{Uri.EscapeDataString(relativePath)}");
                 
                 if (!fileHashes.ContainsKey(url))
                 {
                     try
                     {
-                        UpdateStatusLabel($"Deleting file: {Path.GetFileName(filePath)}...");
+                        progress.Report($"Deleting file: {Path.GetFileName(filePath)}...");
                         File.Delete(filePath);
                     }
                     catch (Exception ex)
@@ -300,12 +332,12 @@ namespace C2COMMUNITY_Mod_Launcher
             }
         }
 
-        private async Task DownloadAndExtractZipAsync(string zipUrl, string destinationFolder)
+        private async Task DownloadAndExtractZipAsync(string zipUrl, string destinationFolder, IProgress<string> progress)
         {
             string tempZipPath = Path.GetTempFileName();
             try
             {
-                UpdateStatusLabel("Downloading mod package...");
+                progress.Report("Downloading mod package...");
                 using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
                 using var response = await client.GetAsync(zipUrl, HttpCompletionOption.ResponseHeadersRead);
                 response.EnsureSuccessStatusCode();
@@ -348,7 +380,7 @@ namespace C2COMMUNITY_Mod_Launcher
                     }
                 }
 
-                UpdateStatusLabel("Extracting mod package...");
+                progress.Report("Extracting mod package...");
                 using (var archive = ZipFile.OpenRead(tempZipPath))
                 {
                     foreach (var entry in archive.Entries)
@@ -367,10 +399,14 @@ namespace C2COMMUNITY_Mod_Launcher
                     }
                 }
 
-                UpdateProgressBar(0, 0, 0, 0, string.Empty);
-                HideDownloadLabels();
-                UpdateStatusLabel("Ready");
-                UpdateVersionLabel();
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    UpdateProgressBar(0, 0, 0, 0, string.Empty);
+                    HideDownloadLabels();
+                    UpdateVersionLabel();
+                    ChangelogTab.IsEnabled = true;
+                });
+                progress.Report("Ready");
             }
             catch (Exception ex)
             {
@@ -403,7 +439,7 @@ namespace C2COMMUNITY_Mod_Launcher
 
         private void LaunchGameButton_Click(object sender, RoutedEventArgs e)
         {
-            string batPath = Path.Combine(_bin32Folder, "Crysis 2 - OpenSpy.bat");
+            string batPath = Path.Combine(_bin32Folder, GAME_STARTER_FILE_NAME);
             if (File.Exists(batPath))
             {
                 try
@@ -427,7 +463,7 @@ namespace C2COMMUNITY_Mod_Launcher
             try
             {
                 using var client = new HttpClient();
-                string json = await client.GetStringAsync("http://beta.openspy.net/api/servers/capricorn");
+                string json = await client.GetStringAsync(SERVER_LIST_SOURCE_URL);
                 var serverList = JsonConvert.DeserializeObject<List<Server>>(json);
                 Dispatcher.Invoke(() =>
                 {

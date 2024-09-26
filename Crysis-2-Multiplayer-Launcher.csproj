@@ -5,9 +5,34 @@
     <OutputType>WinExe</OutputType>
     <UseWPF>True</UseWPF>
     <TargetFramework>net48</TargetFramework>
-    <PlatformTarget>x86</PlatformTarget>
-    <Platforms>AnyCPU;x64;x86</Platforms>
+    <Platforms>x86;x64</Platforms>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>
+  
+  <PropertyGroup Condition="'$(Platform)|$(Configuration)'=='x86|Debug'">
+    <PlatformTarget>x86</PlatformTarget>
+    <OutputPath>bin\x86\Debug\</OutputPath>
+  </PropertyGroup>
+  
+  <PropertyGroup Condition="'$(Platform)|$(Configuration)'=='x86|Release'">
+    <PlatformTarget>x86</PlatformTarget>
+    <OutputPath>bin\x86\Release\</OutputPath>
+  </PropertyGroup>
+  
+  <PropertyGroup Condition="'$(Platform)|$(Configuration)'=='x64|Debug'">
+    <PlatformTarget>x64</PlatformTarget>
+    <OutputPath>bin\x64\Debug\</OutputPath>
+  </PropertyGroup>
+  
+  <PropertyGroup Condition="'$(Platform)|$(Configuration)'=='x64|Release'">
+    <PlatformTarget>x64</PlatformTarget>
+    <OutputPath>bin\x64\Release\</OutputPath>
+  </PropertyGroup>
+
+  <Target Name="CreateBin32Folder" BeforeTargets="Build" Condition="'$(Configuration)'=='Debug'">
+    <MakeDir Directories="$(OutDir)bin32" />
+  </Target>
+
   <PropertyGroup>
     <LangVersion>9.0</LangVersion>
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
@@ -15,18 +40,11 @@
   <PropertyGroup>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <RootNamespace />
+    <Win32Resource />
+    <StartupObject />
   </PropertyGroup>
   <ItemGroup>
     <None Remove="fodyweavers.xml" />
-    <None Remove="costura.webview2loader.dll.compressed" />
-    <None Remove="costura.microsoft.web.webview2.core.dll.compressed" />
-    <None Remove="costura.microsoft.web.webview2.winforms.dll.compressed" />
-    <None Remove="costura.microsoft.web.webview2.wpf.dll.compressed" />
-    <None Remove="costura.costura.dll.compressed" />
-    <None Remove="costura.costura.pdb.compressed" />
-    <None Remove="costura.newtonsoft.json.dll.compressed" />
-    <None Remove="costura.system.diagnostics.diagnosticsource.dll.compressed" />
-    <None Remove="costura.metadata" />
     <None Remove="resources\background.jpg" />
     <EmbeddedResource Include="fodyweavers.xml" LogicalName="fodyweavers.xml" />
   </ItemGroup>

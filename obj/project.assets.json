@@ -4281,11 +4281,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\Berkay\\Desktop\\CR - Kopya (2)\\C2COMMUNITY_Mod_Launcher\\Crysis-2-Multiplayer-Launcher.csproj",
+      "projectUniqueName": "C:\\Users\\Berkay\\Desktop\\C2COMMUNITY_Mod_Launcher\\Crysis-2-Multiplayer-Launcher.csproj",
       "projectName": "Crysis 2 Multiplayer Launcher",
-      "projectPath": "C:\\Users\\Berkay\\Desktop\\CR - Kopya (2)\\C2COMMUNITY_Mod_Launcher\\Crysis-2-Multiplayer-Launcher.csproj",
+      "projectPath": "C:\\Users\\Berkay\\Desktop\\C2COMMUNITY_Mod_Launcher\\Crysis-2-Multiplayer-Launcher.csproj",
       "packagesPath": "C:\\Users\\Berkay\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\Berkay\\Desktop\\CR - Kopya (2)\\C2COMMUNITY_Mod_Launcher\\obj\\",
+      "outputPath": "C:\\Users\\Berkay\\Desktop\\C2COMMUNITY_Mod_Launcher\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "C:\\Users\\Berkay\\AppData\\Roaming\\NuGet\\NuGet.Config",

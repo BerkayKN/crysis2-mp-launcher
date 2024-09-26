@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "ncM+8xbU4Z/t0u0m26enAkePeU9ujT3GNOK89HprDEK0XG7FaQ3TdQc0X1OzB+lXiKvwaP5O924QcPSvfr20Ug==",
+  "dgSpecHash": "k9wCpqCZsPgcqEEHGXmEUN7WAqc8yFrhxabd1M1zoSG/zSNUx9X0phhz2sB2yFMIIfUDv3Pkv5eme3315NiF/Q==",
   "success": true,
-  "projectFilePath": "C:\\Users\\Berkay\\Desktop\\CR - Kopya (2)\\C2COMMUNITY_Mod_Launcher\\Crysis-2-Multiplayer-Launcher.csproj",
+  "projectFilePath": "C:\\Users\\Berkay\\Desktop\\C2COMMUNITY_Mod_Launcher\\Crysis-2-Multiplayer-Launcher.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\Berkay\\.nuget\\packages\\costura.fody\\5.7.0\\costura.fody.5.7.0.nupkg.sha512",
     "C:\\Users\\Berkay\\.nuget\\packages\\fody\\6.5.5\\fody.6.5.5.nupkg.sha512",
