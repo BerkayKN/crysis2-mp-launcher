@@ -24,7 +24,11 @@ namespace C2COMMUNITY_Mod_Launcher
     {
         //Start of Defines
         private const string MD5_FILE_PATH = "/openspymod/openspymodfiles/md5sum.php";
+        #if DEBUG
+        private const string ZIP_FILE_PATH = "/openspymod/launcherdebug.zip";
+        #else
         private const string ZIP_FILE_PATH = "/openspymod/openspymod.zip";
+        #endif
         private const string WEBVIEW_DLL_PATH = "/openspymod/WebView2Loader.dll";
         private const string DEFAULT_SERVER_URL = "http://lb.crysis2.epicgamer.org";
         private const string GAME_MOD_FOLDER = "OpenSpy";
@@ -332,72 +336,93 @@ namespace C2COMMUNITY_Mod_Launcher
             }
         }
 
-        private async Task DownloadAndExtractZipAsync(string zipUrl, string destinationFolder, IProgress<string> progress)
+        
+     private async Task DownloadAndExtractZipAsync(string zipUrl, string destinationFolder, IProgress<string> progress)
         {
-            string tempZipPath = Path.GetTempFileName();
+            string tempZipPath = Path.Combine(Path.GetTempPath(), $"openspy_temp_{Guid.NewGuid()}.zip");
+            FileStream fileStream = null;
+            ZipArchive archive = null;
+
             try
             {
                 progress.Report("Downloading mod package...");
-                using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
-                using var response = await client.GetAsync(zipUrl, HttpCompletionOption.ResponseHeadersRead);
-                response.EnsureSuccessStatusCode();
-
-                long totalBytes = response.Content.Headers.ContentLength ?? -1;
-                long downloadedBytes = 0;
-                var buffer = new byte[8192];
-                using var contentStream = await response.Content.ReadAsStreamAsync();
-                using var fileStream = new FileStream(tempZipPath, FileMode.Create, FileAccess.Write, FileShare.None, buffer.Length, true);
-
-                var startTime = DateTime.Now;
-                var lastUpdateTime = DateTime.Now;
-
-                while (true)
+                using (var client = new HttpClient { Timeout = TimeSpan.FromMinutes(30) })
+                using (var response = await client.GetAsync(zipUrl, HttpCompletionOption.ResponseHeadersRead))
                 {
-                    int bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length);
-                    if (bytesRead == 0) break;
+                    response.EnsureSuccessStatusCode();
+                    long totalBytes = response.Content.Headers.ContentLength ?? -1;
+                    long downloadedBytes = 0;
+                    var buffer = new byte[81920];
 
-                    await fileStream.WriteAsync(buffer, 0, bytesRead);
-                    downloadedBytes += bytesRead;
-
-                    var now = DateTime.Now;
-                    if ((now - lastUpdateTime).TotalSeconds >= 1)
+                    using (var contentStream = await response.Content.ReadAsStreamAsync())
+                    using (fileStream = new FileStream(tempZipPath, FileMode.Create, FileAccess.Write, FileShare.None, buffer.Length, true))
                     {
-                        double downloadSpeed = downloadedBytes / 1048576.0 / (now - startTime).TotalSeconds;
-                        _downloadedSize = downloadedBytes;
-                        _totalDownloadSize = totalBytes;
+                        var startTime = DateTime.Now;
+                        var lastUpdateTime = DateTime.Now;
 
-                        Dispatcher.Invoke(() =>
+                        while (true)
                         {
-                            netSpeedLabel.Content = $"Speed: {downloadSpeed:F2} MB/s";
-                            progressLabel.Content = $"Downloaded: {_downloadedSize / 1048576.0:F2} MB / {_totalDownloadSize / 1048576.0:F2} MB";
-                            if (totalBytes > 0)
-                            {
-                                progressBar.Value = (double)downloadedBytes / totalBytes * 100;
-                            }
-                        });
+                            int bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length);
+                            if (bytesRead == 0) break;
 
-                        lastUpdateTime = now;
+                            await fileStream.WriteAsync(buffer, 0, bytesRead);
+                            downloadedBytes += bytesRead;
+
+                            var now = DateTime.Now;
+                            if ((now - lastUpdateTime).TotalSeconds >= 1)
+                            {
+                                double downloadSpeed = downloadedBytes / 1048576.0 / (now - startTime).TotalSeconds;
+                                _downloadedSize = downloadedBytes;
+                                _totalDownloadSize = totalBytes;
+
+                                await Dispatcher.InvokeAsync(() =>
+                                {
+                                    netSpeedLabel.Content = $"Speed: {downloadSpeed:F2} MB/s";
+                                    progressLabel.Content = $"Downloaded: {_downloadedSize / 1048576.0:F2} MB / {_totalDownloadSize / 1048576.0:F2} MB";
+                                    if (totalBytes > 0)
+                                    {
+                                        progressBar.Value = (double)downloadedBytes / totalBytes * 100;
+                                    }
+                                });
+
+                                lastUpdateTime = now;
+                            }
+                        }
                     }
                 }
 
                 progress.Report("Extracting mod package...");
-                using (var archive = ZipFile.OpenRead(tempZipPath))
+                await Task.Run(() =>
                 {
-                    foreach (var entry in archive.Entries)
+                    using (archive = ZipFile.OpenRead(tempZipPath))
                     {
-                        string fullPath = Path.GetFullPath(Path.Combine(destinationFolder, entry.FullName));
+                        foreach (var entry in archive.Entries)
+                        {
+                            string fullPath = Path.GetFullPath(Path.Combine(destinationFolder, entry.FullName));
 
-                        if (entry.FullName.EndsWith("/"))
-                        {
-                            Directory.CreateDirectory(fullPath);
-                        }
-                        else
-                        {
-                            Directory.CreateDirectory(Path.GetDirectoryName(fullPath));
-                            entry.ExtractToFile(fullPath, true);
+                            if (entry.FullName.EndsWith("/"))
+                            {
+                                Directory.CreateDirectory(fullPath);
+                            }
+                            else
+                            {
+                                Directory.CreateDirectory(Path.GetDirectoryName(fullPath));
+                                for (int retries = 0; retries < 3; retries++)
+                                {
+                                    try
+                                    {
+                                        entry.ExtractToFile(fullPath, true);
+                                        break;
+                                    }
+                                    catch (IOException) when (retries < 2)
+                                    {
+                                        Task.Delay(1000).Wait();
+                                    }
+                                }
+                            }
                         }
                     }
-                }
+                });
 
                 await Dispatcher.InvokeAsync(() =>
                 {
@@ -414,11 +439,41 @@ namespace C2COMMUNITY_Mod_Launcher
             }
             finally
             {
-                try
+                if (archive != null)
                 {
-                    File.Delete(tempZipPath);
+                    archive.Dispose();
                 }
-                catch { /* Ignore errors */ }
+
+                if (fileStream != null)
+                {
+                    fileStream.Dispose();
+                }
+
+                await Task.Run(async () =>
+                {
+                    for (int i = 0; i < 5; i++)
+                    {
+                        try
+                        {
+                            if (File.Exists(tempZipPath))
+                            {
+                                File.Delete(tempZipPath);
+                            }
+                            break;
+                        }
+                        catch (Exception ex)
+                        {
+                            if (i == 4)
+                            {
+                                await Dispatcher.InvokeAsync(() =>
+                                {
+                                    MessageBox.Show($"Unable to delete temporary file: {tempZipPath}\nError: {ex.Message}", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+                                });
+                            }
+                            await Task.Delay(1000);
+                        }
+                    }
+                });
             }
         }
 
