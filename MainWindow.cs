@@ -15,7 +15,7 @@ using Microsoft.Web.WebView2.Wpf;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System.Security.Principal;
-
+using System.Windows.Controls;
 
 
 namespace C2COMMUNITY_Mod_Launcher
@@ -51,6 +51,8 @@ namespace C2COMMUNITY_Mod_Launcher
         private readonly DispatcherTimer _serverTimer;
         //internal WebView2 webView;
         public ObservableCollection<Server> Servers { get; }
+
+        private List<string> _failedDownloads = new List<string>();
 
         public MainWindow()
         {
@@ -135,6 +137,7 @@ namespace C2COMMUNITY_Mod_Launcher
             try
             {
                 _downloadedSize = 0;
+                _failedDownloads.Clear();
                 progress.Report("Downloading file list...");
                 string md5Data = await DownloadStringAsync(_md5Url);
                 progress.Report("Parsing file list data...");
@@ -167,7 +170,12 @@ namespace C2COMMUNITY_Mod_Launcher
                     progress.Report($"Comparing MD5 hash for {Path.GetFileName(filePath)}...");
 
                     if (File.Exists(filePath) && ComputeMD5(filePath) == hash) continue;
-                    await DownloadFileAsync(url, filePath);
+                    bool downloadSuccess = await DownloadFileWithRetryAsync(url, filePath, 5, progress);
+                    if (!downloadSuccess)
+                    {
+                        progress.Report("Failed to download the mod");
+                        return; // Stop the process when download fails
+                    }
                 }
 
                 progress.Report("Comparing installed files to file list...");
@@ -326,14 +334,39 @@ namespace C2COMMUNITY_Mod_Launcher
                 _downloadedSize += totalRead;
                 UpdateDownloadLabel();
             }
-            catch (HttpRequestException ex)
+            catch
             {
-                MessageBox.Show($"HTTP error while downloading file: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                throw; // Rethrow the exception so it can be caught by DownloadFileWithRetryAsync
             }
-            catch (Exception ex)
+        }
+
+        private async Task<bool> DownloadFileWithRetryAsync(string url, string outputPath, int maxRetries, IProgress<string> progress)
+        {
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
             {
-                MessageBox.Show($"General error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                try
+                {
+                    await DownloadFileAsync(url, outputPath);
+                    return true;
+                }
+                catch (HttpRequestException ex)
+                {
+                    if (attempt == maxRetries)
+                    {
+                        _failedDownloads.Add(url);
+                        progress.Report($"Failed to download: {Path.GetFileName(outputPath)}");
+                        return false;
+                    }
+                    await Task.Delay(1000 * attempt); // Exponential backoff
+                }
+                catch (Exception)
+                {
+                    _failedDownloads.Add(url);
+                    progress.Report($"Failed to download: {Path.GetFileName(outputPath)}");
+                    return false;
+                }
             }
+            return false;
         }
 
         

@@ -60,6 +60,7 @@
                             <ColumnDefinition Width="597*"/>
                         </Grid.ColumnDefinitions>
                         <Image Name="Background2" Source="resources\background.jpg" Stretch="UniformToFill" Grid.ColumnSpan="2"/>
+                        <Image Name="Background" Source="http://lb.crysis2.epicgamer.org/openspymod/background.png" Stretch="UniformToFill" Grid.ColumnSpan="2"/>
                         <Label Name="versionLabel" 
                                Content="" 
                                Margin="0,0,10,10" 
