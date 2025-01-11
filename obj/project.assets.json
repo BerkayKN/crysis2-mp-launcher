@@ -4276,19 +4276,24 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\Berkay\\.nuget\\packages\\": {}
+    "C:\\Users\\Berkay\\.nuget\\packages\\": {},
+    "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
   },
   "project": {
     "version": "1.0.0-0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\Berkay\\source\\repos\\Crysis 2 Mod Launcher\\C2COMMUNITY_Mod_Launcher\\Crysis-2-Multiplayer-Launcher.csproj",
+      "projectUniqueName": "D:\\Arşiv\\Çalışmalar\\VS\\crysis2-mp-launcher-main\\Crysis-2-Multiplayer-Launcher.csproj",
       "projectName": "Crysis 2 Multiplayer Launcher",
-      "projectPath": "C:\\Users\\Berkay\\source\\repos\\Crysis 2 Mod Launcher\\C2COMMUNITY_Mod_Launcher\\Crysis-2-Multiplayer-Launcher.csproj",
+      "projectPath": "D:\\Arşiv\\Çalışmalar\\VS\\crysis2-mp-launcher-main\\Crysis-2-Multiplayer-Launcher.csproj",
       "packagesPath": "C:\\Users\\Berkay\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\Berkay\\source\\repos\\Crysis 2 Mod Launcher\\C2COMMUNITY_Mod_Launcher\\obj\\",
+      "outputPath": "D:\\Arşiv\\Çalışmalar\\VS\\crysis2-mp-launcher-main\\obj\\",
       "projectStyle": "PackageReference",
+      "fallbackFolders": [
+        "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
+      ],
       "configFilePaths": [
         "C:\\Users\\Berkay\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],
       "originalTargetFrameworks": [
