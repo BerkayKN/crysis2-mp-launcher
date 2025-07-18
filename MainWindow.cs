@@ -25,7 +25,7 @@ namespace Crysis2_MP_Launcher
 {
     public partial class MainWindow : Window, IComponentConnector
     {
-        //Start of Defines
+        // Start of Defines
         private const string MD5_FILE_PATH = "/openspymod/openspymodfiles/md5sum.php";
         #if DEBUG
         private const string ZIP_FILE_PATH = "/openspymod/launcherdebug.zip";
@@ -39,7 +39,7 @@ namespace Crysis2_MP_Launcher
         private const string SERVER_LIST_SOURCE_URL = "https://openspy-website.nyc3.digitaloceanspaces.com/servers/capricorn.json";
         private const string GAME_STARTER_FILE_NAME = "Crysis 2 - OpenSpy.bat";
         private const int ENABLE_LOGGING = 0;
-        //End of Defines
+        // End of Defines
 
         public string _serverBaseUrl;
         private readonly string _bin32Folder;
@@ -320,7 +320,7 @@ namespace Crysis2_MP_Launcher
 
                 } while (pathsCorrected);
 
-                // WebView2 DLL kontrolü
+                // WebView2 DLL check
                 if (!File.Exists(_webView2LoaderPath))
                 {
                     using var client = new HttpClient();
@@ -355,7 +355,7 @@ namespace Crysis2_MP_Launcher
                 
                 checkedFiles++;
                 
-                // Progress bar'ı güncelle
+                // Update progress bar
                 Dispatcher.Invoke(() =>
                 {
                     double percentage = (checkedFiles * 100.0) / totalFiles;
@@ -396,7 +396,7 @@ namespace Crysis2_MP_Launcher
             string modFolder = Path.Combine(_modSpyFolder, "Mods", GAME_MOD_FOLDER);
             if (!Directory.Exists(modFolder)) return;
 
-            // validFiles oluşturulurken normalize et
+            // Normalize validFiles when creating
             var validFiles = new HashSet<string>(
                 fileHashes.Select(fh =>
                     NormalizePath(Path.Combine(_modSpyFolder, fh.Key.Replace($"{_serverBaseUrl}{SERVER_MOD_PATH}", "").Replace('/', Path.DirectorySeparatorChar)))
@@ -406,7 +406,7 @@ namespace Crysis2_MP_Launcher
 
             await Task.Run(() =>
             {
-                // Dosyaları sil
+                // Delete files
                 var allFiles = Directory.GetFiles(modFolder, "*", SearchOption.AllDirectories);
                 foreach (var filePath in allFiles)
                 {
@@ -416,7 +416,7 @@ namespace Crysis2_MP_Launcher
                     }
                 }
 
-                // Klasörleri sil (aynı şekilde yol normalize edilebilir, ama burada genellikle gerek yok)
+                // Delete directories (similarly, path can be normalized, but usually not necessary here)
                 var allDirs = Directory.GetDirectories(modFolder, "*", SearchOption.AllDirectories)
                     .OrderByDescending(x => x.Length);
                 foreach (var dirPath in allDirs)
@@ -955,7 +955,7 @@ namespace Crysis2_MP_Launcher
             {
                 LogMessage($"[ERROR] Background image check failed: {ex.Message}");
             }
-            // Fallback: gömülü resmi göster
+            // Fallback: show embedded image
             BackgroundImage.Source = new BitmapImage(new Uri(embeddedPath));
         }
     }
