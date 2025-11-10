@@ -15,6 +15,6 @@ using System.Windows.Resources;
 [assembly: AssemblyCopyright("Copyright ©  2025")]
 [assembly: AssemblyTrademark("")]
 [assembly: ComVisible(false)]
-[assembly: AssemblyFileVersion("1.0.0.8")]
+[assembly: AssemblyFileVersion("1.0.0.9")]
 [assembly: AssemblyAssociatedContentFile("webview2loader.dll")]
-[assembly: AssemblyVersion("1.0.0.8")]
+[assembly: AssemblyVersion("1.0.0.9")]

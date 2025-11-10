@@ -214,23 +214,12 @@ namespace Crysis2_MP_Launcher
                         return;
                     }
 
-                    string openSpyPath = Path.Combine(_modSpyFolder, "Mods", "OpenSpy");
-                    bool shouldDownloadZip = !Directory.Exists(openSpyPath) || 
-                                           !Directory.EnumerateFileSystemEntries(openSpyPath).Any();
-
-                    if (shouldDownloadZip)
-                    {
-                        progress.Report("OpenSpy folder is missing or empty. Downloading full package...");
-                        await DownloadAndExtractZipAsync(_zipUrl, _modSpyFolder, progress);
-                        return;
-                    }
-
                     // MD5 checks for total file count
                     int totalFiles = fileHashes.Count;
 
                     dynamic val = JsonConvert.DeserializeObject<object>(md5Data);
                     bool freshInstall = val.freshinstallzip == "1";
-                    
+
                     if (!Directory.Exists(Path.Combine(_modSpyFolder, "Mods", "OpenSpy")) && freshInstall)
                     {
                         progress.Report("Extracting ZIP file...");
