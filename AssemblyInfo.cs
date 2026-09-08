@@ -1,3 +1,4 @@
+//#define TEST_UPDATER
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -15,6 +16,13 @@ using System.Windows.Resources;
 [assembly: AssemblyCopyright("Copyright ©  2025")]
 [assembly: AssemblyTrademark("")]
 [assembly: ComVisible(false)]
-[assembly: AssemblyFileVersion("1.0.0.9")]
+
+#if TEST_UPDATER
+[assembly: AssemblyFileVersion("0.9.0.0")]
+[assembly: AssemblyVersion("0.9.0.0")]
+#else
+[assembly: AssemblyFileVersion("1.0.1.0")]
+[assembly: AssemblyVersion("1.0.1.0")]
+#endif
+
 [assembly: AssemblyAssociatedContentFile("webview2loader.dll")]
-[assembly: AssemblyVersion("1.0.0.9")]

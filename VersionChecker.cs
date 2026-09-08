@@ -1,3 +1,4 @@
+#define ENABLE_LOGGING
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -10,9 +11,15 @@ namespace Crysis2_MP_Launcher
 {
     public class VersionChecker
     {
-        public static MainWindow MainWindowInstance { get; set; }
-        private static string VERSION_CHECK_URL => MainWindowInstance._serverBaseUrl + "/openspymod/Launcher/index.php";
-        private static string UPDATE_SITE_URL => MainWindowInstance._serverBaseUrl + "/openspymod/Launcher/Crysis%202%20Multiplayer%20Launcher.exe";
+        private static string GetServerBaseUrl()
+        {
+            if (Application.Current?.MainWindow is MainWindow mw && !string.IsNullOrWhiteSpace(mw.ServerBaseUrl))
+                return mw.ServerBaseUrl;
+            return MainWindow.DEFAULT_SERVER_URL;
+        }
+
+        private static string GetVersionCheckUrl() => GetServerBaseUrl() + "/openspymod/Launcher/index.php";
+        private static string GetUpdateSiteUrl() => GetServerBaseUrl() + "/openspymod/Launcher/Crysis%202%20Multiplayer%20Launcher.exe";
 
         public static async Task CheckForUpdates()
         {
@@ -73,7 +80,6 @@ namespace Crysis2_MP_Launcher
             }
             catch (Exception ex)
             {
-                // Log exception but don't show to user - silently continue if version check fails
                 LogVersionCheckError(ex);
             }
         }
@@ -94,7 +100,7 @@ namespace Crysis2_MP_Launcher
             {
                 using (var client = new HttpClient())
                 {
-                    string response = await client.GetStringAsync(VERSION_CHECK_URL);
+                    string response = await client.GetStringAsync(GetVersionCheckUrl());
                     return ParseVersionInfo(response);
                 }
             }
@@ -192,9 +198,10 @@ namespace Crysis2_MP_Launcher
 
         private static void OpenUpdateSite()
         {
+            string updateUrl = GetUpdateSiteUrl();
             try
             {
-                Process.Start(UPDATE_SITE_URL);
+                Process.Start(updateUrl);
             }
             catch
             {
@@ -203,14 +210,14 @@ namespace Crysis2_MP_Launcher
                 {
                     ProcessStartInfo psi = new ProcessStartInfo
                     {
-                        FileName = UPDATE_SITE_URL,
+                        FileName = updateUrl,
                         UseShellExecute = true
                     };
                     Process.Start(psi);
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"Failed to open update page: {ex.Message}\nPlease visit {UPDATE_SITE_URL} manually.",
+                    MessageBox.Show($"Failed to open update page: {ex.Message}\nPlease visit {updateUrl} manually.",
                         "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
@@ -218,18 +225,7 @@ namespace Crysis2_MP_Launcher
 
         private static void LogVersionCheckError(Exception ex)
         {
-            #if ENABLE_LOGGING
-            try
-            {
-                string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "version_check.log");
-                string logMessage = $"[{DateTime.Now}] Version check error: {ex.Message}\r\n{ex.StackTrace}\r\n";
-                File.AppendAllText(logPath, logMessage);
-            }
-            catch
-            {
-                // Ignore logging errors
-            }
-            #endif
+            Logger.LogError("Version check error", ex);
         }
 
         private class VersionInfo
@@ -239,4 +235,4 @@ namespace Crysis2_MP_Launcher
             public string UpdateInfo { get; set; }
         }
     }
-} 
+}

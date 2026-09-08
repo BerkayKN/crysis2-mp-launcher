@@ -1,4 +1,10 @@
+#define UpdateChangelog
+#define CleanFilesNotInMd5List
+#define EnableServerList
+//#define ZIP_TEST
+
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -20,48 +26,44 @@ using System.Security.Principal;
 using System.Windows.Controls;
 using System.Windows.Media.Imaging;
 
-
 namespace Crysis2_MP_Launcher
 {
     public partial class MainWindow : Window, IComponentConnector
     {
         // Start of Defines
         private const string MD5_FILE_PATH = "/openspymod/openspymodfiles/md5sum.php";
-        #if DEBUG
+#if ZIP_TEST
         private const string ZIP_FILE_PATH = "/openspymod/launcherdebug.zip";
-        #else
+#else
         private const string ZIP_FILE_PATH = "/openspymod/openspymod.zip";
-        #endif
+#endif
         private const string WEBVIEW_DLL_PATH = "/openspymod/WebView2Loader.dll";
         public const string DEFAULT_SERVER_URL = "http://lb.crysis2.privatedns.org";
         private const string GAME_MOD_FOLDER = "OpenSpy";
         private const string SERVER_MOD_PATH = "/openspymod/openspymodfiles/";
         private const string SERVER_LIST_SOURCE_URL = "https://openspy-website.nyc3.digitaloceanspaces.com/servers/capricorn.json";
         private const string GAME_STARTER_FILE_NAME = "Crysis 2 - OpenSpy.bat";
-        private const int ENABLE_LOGGING = 0;
+        private const string GET_SERVER_URL = "https://raw.githubusercontent.com/BerkayKN/crysis2-mp-launcher/main/server/server.txt";
         // End of Defines
 
-        public string _serverBaseUrl;
+        private string _serverBaseUrl;
+        public string ServerBaseUrl => _serverBaseUrl;
         private readonly string _bin32Folder;
-        private readonly string _modSpyFolder;
+        private readonly string _gameFolder;
         private string _md5Url;
         private string _zipUrl;
         private string _WebViewDLLUrl;
         private readonly string _webView2LoaderPath;
         private long _totalDownloadSize;
         private bool _isAdministrator;
-        private long _downloadedSize;
         private string _jsonVersion;
+#if EnableServerList
         private readonly DispatcherTimer _serverTimer;
+#endif
         //internal WebView2 webView;
         public ObservableCollection<Serverlist> Servers { get; }
 
         private List<string> _failedDownloads = new List<string>();
-
-        private long _lastBytesRead = 0;
-        private DateTime _lastSpeedUpdate = DateTime.Now;
-        
-        private static readonly SemaphoreSlim _pathSemaphore = new SemaphoreSlim(1, 1);
         public string Version
         {
             get
@@ -71,30 +73,32 @@ namespace Crysis2_MP_Launcher
             }
         }
 
-        private int _downloadedFileCount;
+        public string BackgroundImageUrl => ($"{_serverBaseUrl}/openspymod/background.png");
 
         public MainWindow()
         {
-            try
-            {
-                string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "launcher.log");
-                File.WriteAllText(logPath, $"=== Launcher Started at {DateTime.Now:yyyy-MM-dd HH:mm:ss} ==={Environment.NewLine}");
-                LogMessage("[INIT] Launcher initialized");
-            }
-            catch { /* Ignore log creation errors */ }
+            ServicePointManager.DefaultConnectionLimit = 100;
+            ServicePointManager.Expect100Continue = false;
+            ServicePointManager.UseNagleAlgorithm = false;
+
+            Logger.Initialize();
 
             InitializeComponent();
+            DataContext = this;
             _bin32Folder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "bin32");
-            _modSpyFolder = AppDomain.CurrentDomain.BaseDirectory;
-            _webView2LoaderPath = Path.Combine(_modSpyFolder, "WebView2Loader.dll");
+            _gameFolder = AppDomain.CurrentDomain.BaseDirectory;
+            _webView2LoaderPath = Path.Combine(_gameFolder, "WebView2Loader.dll");
             _isAdministrator = IsAdministrator();
-            LogMessage($"[INIT] Mod folder: {_modSpyFolder}");
+            Logger.IsEnabled = true;
+            LogMessage($"[INIT] Mod folder: {_gameFolder}");
             LogMessage($"[INIT] Bin32 folder: {_bin32Folder}");
             LogMessage($"[INIT] Administrator: {_isAdministrator}");
 
             UpdateWindowTitle();
             Servers = new ObservableCollection<Serverlist>();
             serverListView.ItemsSource = Servers;
+
+#if EnableServerList
             _ = UpdateServerList();
             _serverTimer = new DispatcherTimer
             {
@@ -102,6 +106,20 @@ namespace Crysis2_MP_Launcher
             };
             _serverTimer.Tick += async (s, e) => await UpdateServerList();
             _serverTimer.Start();
+#else
+            var serverListTab = this.FindName("ServerlistTab") as TabItem;
+            if (serverListTab != null)
+            {
+                serverListTab.Visibility = Visibility.Collapsed;
+                serverListTab.IsEnabled = false;
+            }
+#endif
+
+#if !UpdateChangelog
+            ChangelogTab.Visibility = Visibility.Collapsed;
+            ChangelogTab.IsEnabled = false;
+#endif
+
             CheckDirectoryStructure();
         }
 
@@ -109,24 +127,28 @@ namespace Crysis2_MP_Launcher
         {
             try
             {
-                using (var httpClient = new System.Net.Http.HttpClient())
-                {
-                    _serverBaseUrl = (await httpClient.GetStringAsync(  
-                        "https://raw.githubusercontent.com/BerkayKN/crysis2-mp-launcher/main/server/server.txt"))
-                        .Trim().TrimEnd('/');
-                }
+                using var client = new HttpClient();
+                _serverBaseUrl = await client.GetStringAsync(GET_SERVER_URL);
+                _serverBaseUrl = string.IsNullOrWhiteSpace(_serverBaseUrl) ? DEFAULT_SERVER_URL : _serverBaseUrl.Trim().TrimEnd('/');
             }
             catch
             {
                 _serverBaseUrl = DEFAULT_SERVER_URL;
             }
-
             _md5Url = $"{_serverBaseUrl}" + MD5_FILE_PATH;
             _zipUrl = $"{_serverBaseUrl}{ZIP_FILE_PATH}";
             _WebViewDLLUrl = $"{_serverBaseUrl}{WEBVIEW_DLL_PATH}";
 
-
-            ChangelogWebView.Source = new Uri($"{_serverBaseUrl}/openspymod/changelog/");
+#if UpdateChangelog
+            Dispatcher.Invoke(() =>
+            {
+                try
+                {
+                    ChangelogWebView.Source = new Uri($"{_serverBaseUrl}/openspymod/changelog/");
+                }
+                catch { }
+            });
+#endif
         }
 
         private bool IsAdministrator()
@@ -164,14 +186,15 @@ namespace Crysis2_MP_Launcher
             }
         }
 
-
         private async void CheckDirectoryStructure()
         {
             launchGameButton.IsEnabled = false;
+#if UpdateChangelog
             ChangelogTab.IsEnabled = true; // Previously was false, new ui changes mostly fixed the freezing issue
+#endif
             if (!Directory.Exists(_bin32Folder))
             {
-                string message = File.Exists(Path.Combine(_modSpyFolder, "Crysis2.exe"))
+                string message = File.Exists(Path.Combine(_gameFolder, "Crysis2.exe"))
                     ? "The launcher is inside Bin32 folder. Please place the launcher in the Crysis 2 root folder."
                     : "The launcher is outside Crysis 2 root folder. Please place the launcher in the Crysis 2 root folder.";
                 MessageBox.Show(message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -179,16 +202,14 @@ namespace Crysis2_MP_Launcher
                 return;
             }
 
+            await InitializeAsync();
+
             await VersionChecker.CheckForUpdates();
 
             await UpdateStatusLabelAsync("Checking mod files...");
-            await InitializeAsync();
-            
             _ = SetBackgroundImageAsync();
-
             var progress = new Progress<string>(message => statusLabel.Content = message);
             await Task.Run(() => CheckAndUpdateModFiles(progress));
-            
             launchGameButton.IsEnabled = true;
         }
 
@@ -196,131 +217,250 @@ namespace Crysis2_MP_Launcher
         {
             try
             {
-                _downloadedSize = 0;
                 _failedDownloads.Clear();
-                bool pathsCorrected = false;
 
-                do
+                var downloadProgress = new Progress<DownloadProgressReport>(report =>
                 {
-                    pathsCorrected = false;
+                    Dispatcher.InvokeAsync(() =>
+                    {
+                        try
+                        {
+                            progressBar.Value = report.ProgressPercentage;
+                            if (report.TotalBytes > 0)
+                            {
+                                progressLabel.Content = $"Downloaded: {report.DownloadedBytes / 1048576.0:F2} MB / {report.TotalBytes / 1048576.0:F2} MB";
+                            }
+                            else if (report.TotalFiles > 0)
+                            {
+                                progressLabel.Content = $"Processing: {report.DownloadedFiles} / {report.TotalFiles}";
+                            }
+
+                            if (report.SpeedBytesPerSecond > 0)
+                            {
+                                netSpeedLabel.Content = $"Speed: {report.SpeedBytesPerSecond / 1048576.0:F2} MB/s";
+                            }
+
+                            if (!string.IsNullOrEmpty(report.StatusMessage))
+                            {
+                                statusLabel.Content = report.StatusMessage;
+                            }
+                        }
+                        catch { /* Ignore UI update errors */ }
+                    });
+                });
+
+                using (var downloadManager = new DownloadManager(downloadProgress, LogMessage, _serverBaseUrl))
+                {
                     progress.Report("Downloading file list...");
-                    string md5Data = await DownloadStringAsync(_md5Url);
+                    string md5Data = await downloadManager.DownloadStringAsync(_md5Url, TimeSpan.FromMinutes(2));
                     progress.Report("Parsing file list data...");
                     var fileHashes = ParseMd5Data(md5Data);
-                    
+
                     if (fileHashes == null || fileHashes.Count == 0)
                     {
                         progress.Report("Failed to load file list data. Aborting.");
                         return;
                     }
 
-                    // MD5 checks for total file count
                     int totalFiles = fileHashes.Count;
 
                     dynamic val = JsonConvert.DeserializeObject<object>(md5Data);
-                    bool freshInstall = val.freshinstallzip == "1";
+                    bool freshInstall = val?.freshinstallzip == "1";
 
-                    if (!Directory.Exists(Path.Combine(_modSpyFolder, "Mods", "OpenSpy")) && freshInstall)
+                    if (!Directory.Exists(Path.Combine(_gameFolder, "Mods", GAME_MOD_FOLDER)) && freshInstall)
                     {
                         progress.Report("Extracting ZIP file...");
-                        await DownloadAndExtractZipAsync(_zipUrl, _modSpyFolder, progress);
+                        await downloadManager.DownloadAndExtractZipAsync(_zipUrl, _gameFolder, progress);
+
+                        await Dispatcher.InvokeAsync(() =>
+                        {
+                            HideDownloadLabels();
+                            UpdateVersionLabel();
+#if UpdateChangelog
+                            ChangelogTab.IsEnabled = true;
+#endif
+                        });
+                        progress.Report("Ready to play");
                         return;
                     }
 
                     await Dispatcher.InvokeAsync(() =>
                     {
                         progressBar.Value = 0;
-                        //progressLabel.Content = $"Checking files: 0 / {totalFiles}";
+                        progressLabel.Content = $"Checking files: 0 / {totalFiles}";
                     });
 
-                    long existingFilesSize = CalculateExistingAndValidFilesSize(fileHashes, progress, totalFiles);
-                    _totalDownloadSize = _totalDownloadSize - existingFilesSize;
-                    
-                    progress.Report($"Checking file hashes (0/{fileHashes.Count})");
+                    progress.Report($"Checking file hashes (0/{totalFiles})...");
 
-                    // Determine files to download
-                    List<KeyValuePair<string, string>> filesToDownload = new List<KeyValuePair<string, string>>();
+                    var filesToDownload = new ConcurrentBag<KeyValuePair<string, string>>();
+                    long existingFilesSize = 0;
                     int hashesChecked = 0;
+                    DateTime lastUiUpdate = DateTime.MinValue;
+                    object uiLock = new object();
 
-                    foreach(var fileHash in fileHashes)
+                    var parallelOptions = new ParallelOptions
                     {
-                        string path = fileHash.Key.Replace(_serverBaseUrl + "/openspymod/openspymodfiles/", "").Replace('/', '\\');
-                        string localPath = Path.Combine(_modSpyFolder, path);
-                        
-                        hashesChecked++;
-                        progress.Report($"Checking file hashes ({hashesChecked}/{fileHashes.Count})");
-                        
-                        if(!File.Exists(localPath) || ComputeMD5(localPath) != fileHash.Value)
+                        MaxDegreeOfParallelism = Environment.ProcessorCount
+                    };
+
+                    await Task.Run(() =>
+                    {
+                        Parallel.ForEach(fileHashes, parallelOptions, fileHash =>
                         {
-                            filesToDownload.Add(fileHash);
+                            string path = fileHash.Key.Replace($"{_serverBaseUrl}{SERVER_MOD_PATH}", "").Replace('/', '\\');
+                            string localPath = Path.Combine(_gameFolder, path);
+
+                            bool isValid = false;
+                            try
+                            {
+                                if (File.Exists(localPath))
+                                {
+                                    string computedHash = ComputeMD5(localPath);
+                                    if (string.Equals(computedHash, fileHash.Value, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        isValid = true;
+                                        long fileSize = new FileInfo(localPath).Length;
+                                        Interlocked.Add(ref existingFilesSize, fileSize);
+                                    }
+                                }
+                            }
+                            catch { }
+
+                            if (!isValid)
+                            {
+                                filesToDownload.Add(fileHash);
+                            }
+
+                            int currentChecked = Interlocked.Increment(ref hashesChecked);
+
+                            bool shouldUpdateUi = false;
+                            lock (uiLock)
+                            {
+                                if ((DateTime.Now - lastUiUpdate).TotalMilliseconds >= 100 || currentChecked == totalFiles)
+                                {
+                                    lastUiUpdate = DateTime.Now;
+                                    shouldUpdateUi = true;
+                                }
+                            }
+
+                            if (shouldUpdateUi)
+                            {
+                                double percentage = (currentChecked * 100.0) / totalFiles;
+                                progress.Report($"Checking file hashes...");
+                                Dispatcher.InvokeAsync(() =>
+                                {
+                                    progressBar.Value = percentage;
+                                    progressLabel.Content = $"{currentChecked} / {totalFiles}";
+                                });
+                            }
+                        });
+                    });
+
+                    _totalDownloadSize = Math.Max(0, _totalDownloadSize - existingFilesSize);
+
+                    var filesToDownloadList = filesToDownload.ToList();
+                    int totalFilesToDownload = filesToDownloadList.Count;
+
+                    if (totalFilesToDownload == 0)
+                    {
+                        LogMessage("[UPDATE] All files are up to date. No files to download.");
+#if CleanFilesNotInMd5List
+                        progress.Report("Cleaning up old files...");
+                        await DeleteFilesNotInMd5List(fileHashes, progress);
+#endif
+                        await Dispatcher.InvokeAsync(() =>
+                        {
+                            HideDownloadLabels();
+                            UpdateVersionLabel();
+#if UpdateChangelog
+                            ChangelogTab.IsEnabled = true;
+#endif
+                        });
+                        progress.Report("Ready to play");
+
+#if UpdateChangelog
+                        if (!File.Exists(_webView2LoaderPath))
+                        {
+                            try
+                            {
+                                byte[] dllBytes = await downloadManager.DownloadByteArrayAsync(_WebViewDLLUrl);
+                                File.WriteAllBytes(_webView2LoaderPath, dllBytes);
+                            }
+                            catch { /* Ignore errors */ }
                         }
+#endif
+                        return;
                     }
 
-                    int totalFilesToDownload = filesToDownload.Count;
                     int remainingFiles = totalFilesToDownload;
 
-                    // Prepare for parallel download
+                    downloadManager.ResetCounters(_totalDownloadSize, totalFilesToDownload);
+
                     int processorCount = Environment.ProcessorCount;
                     int concurrentDownloads = Math.Min(8, Math.Max(2, processorCount));
                     List<Task> downloadTasks = new List<Task>();
-                    SemaphoreSlim semaphore = new SemaphoreSlim(concurrentDownloads);
-
-                    progress.Report($"Using {concurrentDownloads} concurrent downloads for {totalFilesToDownload} files...");
-
-                    // Create parallel download task for each file
-                    foreach (var file in filesToDownload)
+                    using (var semaphore = new SemaphoreSlim(concurrentDownloads))
                     {
-                        string url = file.Key;
-                        string path = url.Replace(_serverBaseUrl + "/openspymod/openspymodfiles/", "").Replace('/', '\\');
-                        string filePath = Path.Combine(_modSpyFolder, path);
-                        
-                        await semaphore.WaitAsync();
-                        
-                        downloadTasks.Add(Task.Run(async () => {
-                            try
+                        progress.Report($"Downloading files ( 0/{totalFilesToDownload} )...");
+                        LogMessage($"Using {concurrentDownloads} concurrent downloads for {totalFilesToDownload} files...");
+
+                        foreach (var file in filesToDownloadList)
+                        {
+                            string url = file.Key;
+                            string path = url.Replace($"{_serverBaseUrl}{SERVER_MOD_PATH}", "").Replace('/', '\\');
+                            string filePath = Path.Combine(_gameFolder, path);
+
+                            await semaphore.WaitAsync();
+
+                            downloadTasks.Add(Task.Run(async () =>
                             {
-                                await DownloadFileWithRetryAsync(url, filePath, 5, progress, totalFilesToDownload);
-                                var remaining = Interlocked.Decrement(ref remainingFiles);
-                                //progress.Report($"Downloading files (Remaining: {remaining}/{totalFilesToDownload})...");
-                            }
-                            finally
-                            {
-                                semaphore.Release();
-                            }
-                        }));
+                                try
+                                {
+                                    await downloadManager.DownloadFileWithRetryAsync(url, filePath, 5, progress);
+                                    var remaining = Interlocked.Decrement(ref remainingFiles);
+                                    progress.Report($"Downloading files ( {totalFilesToDownload - remaining}/{totalFilesToDownload} )...");
+                                }
+                                finally
+                                {
+                                    semaphore.Release();
+                                }
+                            }));
+                        }
+
+                        await Task.WhenAll(downloadTasks);
                     }
 
-                    // Wait for all downloads to complete
-                    await Task.WhenAll(downloadTasks);
+                    _failedDownloads = new List<string>(downloadManager.FailedDownloads);
 
-                    // After downloads complete, delete files not in MD5 list
+#if CleanFilesNotInMd5List
                     progress.Report("Cleaning up old files...");
                     await DeleteFilesNotInMd5List(fileHashes, progress);
+#endif
 
                     await Dispatcher.InvokeAsync(() =>
                     {
-                        UpdateProgressBar(0, 0, 0, 0, string.Empty);
                         HideDownloadLabels();
                         UpdateVersionLabel();
+#if UpdateChangelog
                         ChangelogTab.IsEnabled = true;
+#endif
                     });
-                    
+
                     progress.Report("Ready to play");
 
-                } while (pathsCorrected);
-
-                // WebView2 DLL check
-                if (!File.Exists(_webView2LoaderPath))
-                {
-                    using var client = new HttpClient();
-                    try
+#if UpdateChangelog
+                    // WebView2 DLL check
+                    if (!File.Exists(_webView2LoaderPath))
                     {
-                        byte[] dllBytes = await client.GetByteArrayAsync(_WebViewDLLUrl);
-                        File.WriteAllBytes(_webView2LoaderPath, dllBytes);
+                        try
+                        {
+                            byte[] dllBytes = await downloadManager.DownloadByteArrayAsync(_WebViewDLLUrl);
+                            File.WriteAllBytes(_webView2LoaderPath, dllBytes);
+                        }
+                        catch { /* Ignore errors */ }
                     }
-                    catch { /* Ignore errors */ }
+#endif
                 }
-
             }
             catch (HttpRequestException ex)
             {
@@ -329,35 +469,6 @@ namespace Crysis2_MP_Launcher
                     MessageBox.Show($"HTTP request error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 });
             }
-        }
-
-        private long CalculateExistingAndValidFilesSize(Dictionary<string, string> fileHashes, 
-            IProgress<string> progress, int totalFiles)
-        {
-            long totalExistingSize = 0;
-            int checkedFiles = 0;
-
-            foreach (var fileHash in fileHashes)
-            {
-                string relativePath = fileHash.Key.Replace($"{_serverBaseUrl}{SERVER_MOD_PATH}", "").Replace('/', '\\');
-                string filePath = Path.Combine(_modSpyFolder, relativePath);
-                
-                checkedFiles++;
-                
-                // Update progress bar
-                Dispatcher.Invoke(() =>
-                {
-                    double percentage = (checkedFiles * 100.0) / totalFiles;
-                    progressBar.Value = percentage;
-                    //progressLabel.Content = $"Checking files: {checkedFiles} / {totalFiles}";
-                });
-                
-                if (File.Exists(filePath) && ComputeMD5(filePath) == fileHash.Value)
-                {
-                    totalExistingSize += new FileInfo(filePath).Length;
-                }
-            }
-            return totalExistingSize;
         }
 
         private Task UpdateStatusLabelAsync(string message)
@@ -371,7 +482,6 @@ namespace Crysis2_MP_Launcher
             netSpeedLabel.Content = string.Empty;
             progressLabel.Content = string.Empty;
         });
-        
 
         private string NormalizePath(string path)
         {
@@ -382,20 +492,18 @@ namespace Crysis2_MP_Launcher
         {
             await UpdateStatusLabelAsync("Cleaning up old files...");
 
-            string modFolder = Path.Combine(_modSpyFolder, "Mods", GAME_MOD_FOLDER);
+            string modFolder = Path.Combine(_gameFolder, "Mods", GAME_MOD_FOLDER);
             if (!Directory.Exists(modFolder)) return;
 
-            // Normalize validFiles when creating
             var validFiles = new HashSet<string>(
                 fileHashes.Select(fh =>
-                    NormalizePath(Path.Combine(_modSpyFolder, fh.Key.Replace($"{_serverBaseUrl}{SERVER_MOD_PATH}", "").Replace('/', Path.DirectorySeparatorChar)))
+                    NormalizePath(Path.Combine(_gameFolder, fh.Key.Replace($"{_serverBaseUrl}{SERVER_MOD_PATH}", "").Replace('/', Path.DirectorySeparatorChar)))
                 ),
                 StringComparer.OrdinalIgnoreCase
             );
 
             await Task.Run(() =>
             {
-                // Delete files
                 var allFiles = Directory.GetFiles(modFolder, "*", SearchOption.AllDirectories);
                 foreach (var filePath in allFiles)
                 {
@@ -405,7 +513,6 @@ namespace Crysis2_MP_Launcher
                     }
                 }
 
-                // Delete directories (similarly, path can be normalized, but usually not necessary here)
                 var allDirs = Directory.GetDirectories(modFolder, "*", SearchOption.AllDirectories)
                     .OrderByDescending(x => x.Length);
                 foreach (var dirPath in allDirs)
@@ -416,7 +523,7 @@ namespace Crysis2_MP_Launcher
 
                     string url = Uri.UnescapeDataString($"{_serverBaseUrl}{SERVER_MOD_PATH}Mods/{GAME_MOD_FOLDER}/{Uri.EscapeDataString(relativePath)}");
 
-                    bool hasMatchingFiles = fileHashes.Keys.Any(key => key.StartsWith(url));
+                    bool hasMatchingFiles = fileHashes.Keys.Any(key => key.StartsWith(url, StringComparison.OrdinalIgnoreCase));
                     if (!hasMatchingFiles)
                     {
                         try
@@ -428,17 +535,14 @@ namespace Crysis2_MP_Launcher
                         catch (Exception ex)
                         {
                             LogMessage($"[ERROR] Error deleting directory {dirPath}: {ex.Message}");
-                            MessageBox.Show($"Error deleting directory {dirPath}: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                            Dispatcher.Invoke(() =>
+                            {
+                                MessageBox.Show($"Error deleting directory {dirPath}: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                            });
                         }
                     }
                 }
             });
-        }   
-
-        private async Task<string> DownloadStringAsync(string url)
-        {
-            using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
-            return await client.GetStringAsync(url);
         }
 
         private Dictionary<string, string> ParseMd5Data(string md5Data)
@@ -452,427 +556,49 @@ namespace Crysis2_MP_Launcher
             }
             catch (JsonReaderException ex)
             {
-                LogMessage($"[ERROR] Error parsing MD5 data: {ex.Message}");
                 MessageBox.Show($"Error parsing MD5 data: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             catch (Exception ex)
             {
-                LogMessage($"[ERROR] An unexpected error occurred while parsing MD5 data: {ex.Message}");
                 MessageBox.Show($"An unexpected error occurred: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             return new Dictionary<string, string>();
         }
-
 
         private string ComputeMD5(string filePath)
         {
             try
             {
                 using var md5 = MD5.Create();
-                using var stream = File.OpenRead(filePath);
+                using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.SequentialScan);
                 return BitConverter.ToString(md5.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
             }
             catch (Exception ex)
             {
-                LogMessage($"[ERROR] Error computing MD5 for {filePath}: {ex.Message}");
+                Logger.LogMessage($"[ERROR] Error computing MD5 for {filePath}: {ex.Message}");
                 return string.Empty;
             }
         }
-
-        private async Task DownloadFileAsync(string url, string filePath, int totalFiles)
-        {
-            using var client = new HttpClient();
-            client.DefaultRequestHeaders.Add("Keep-Alive", "true");
-            client.Timeout = Timeout.InfiniteTimeSpan;
-            
-            try
-            {
-                using var response = await client.GetAsync(Uri.EscapeUriString(url), HttpCompletionOption.ResponseHeadersRead);
-                response.EnsureSuccessStatusCode();
-                long fileSize = response.Content.Headers.ContentLength ?? -1;
-
-                Directory.CreateDirectory(Path.GetDirectoryName(filePath));
-
-                using var stream = await response.Content.ReadAsStreamAsync();
-                using var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 131072, true);
-                var buffer = new byte[131072]; // 128KB buffer
-                long totalBytesRead = 0;
-
-                while (true)
-                {
-                    int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
-                    if (bytesRead == 0) break;
-
-                    await fileStream.WriteAsync(buffer, 0, bytesRead);
-                    totalBytesRead += bytesRead;
-                    
-                    Interlocked.Add(ref _downloadedSize, bytesRead);
-                    
-                    double progressPercentage = (_downloadedSize * 100.0) / _totalDownloadSize;
-                    
-                    await Dispatcher.InvokeAsync(() =>
-                    {
-                        UpdateProgressBar(
-                            (int)progressPercentage, 
-                            _downloadedSize, 
-                            _totalDownloadSize, 
-                            0,
-                            $"Downloading files... ({_downloadedFileCount + 1}/{totalFiles})"
-                        );
-                    });
-                }
-            }
-            catch (Exception ex)
-            {
-                LogMessage($"[ERROR] Error downloading file {url}: {ex.Message}");
-                throw;
-            }
-        }
-
-        private async Task<bool> DownloadFileWithRetryAsync(string url, string filePath, int retryCount, IProgress<string> progress, int totalFiles)
-        {
-            ServicePointManager.DefaultConnectionLimit = 100;
-            ServicePointManager.Expect100Continue = false;
-
-            for (int attempt = 1; attempt <= retryCount; attempt++)
-            {
-                try
-                {
-                    await DownloadFileAsync(url, filePath, totalFiles);
-                    var downloadedCount = Interlocked.Increment(ref _downloadedFileCount);
-                    //progress.Report($"Downloading files ({downloadedCount}/{totalFiles})");
-                    return true;
-                }
-                catch (HttpRequestException ex)
-                {
-                    LogMessage($"[ERROR] Download attempt {attempt} for {url} failed with HttpRequestException: {ex.Message}");
-                    if (attempt == retryCount)
-                    {
-                        LogMessage($"[ERROR] All retry attempts failed for {url}");
-                        _failedDownloads.Add(url);
-                        progress.Report($"Failed to download: {Path.GetFileName(filePath)}");
-                        return false;
-                    }
-                    await Task.Delay(1000 * attempt);
-                }
-                catch (Exception ex)
-                {
-                    LogMessage($"[ERROR] Download attempt {attempt} for {url} failed with Exception: {ex.Message}");
-                    if (attempt == retryCount)
-                    {
-                        LogMessage($"[ERROR] All retry attempts failed for {url}");
-                        _failedDownloads.Add(url);
-                        progress.Report($"Failed to download: {Path.GetFileName(filePath)}");
-                        return false;
-                    }
-                }
-            }
-            return false;
-        }
-
-        
-     private async Task DownloadAndExtractZipAsync(string zipUrl, string destinationFolder, IProgress<string> progress)
-        {
-            string tempZipPath = Path.Combine(Path.GetTempPath(), $"openspy_temp_{Guid.NewGuid()}.zip");
-            
-            try
-            {
-                // Reset counters before download
-                _downloadedSize = 0;
-                _lastBytesRead = 0;
-                _lastSpeedUpdate = DateTime.Now;
-
-                using var client = new HttpClient();
-                using var response = await client.GetAsync(zipUrl, HttpCompletionOption.ResponseHeadersRead);
-                response.EnsureSuccessStatusCode();
-                var totalSize = response.Content.Headers.ContentLength ?? -1;
-                _totalDownloadSize = totalSize;
-
-                // Configure ServicePoint settings for better performance
-                ServicePointManager.DefaultConnectionLimit = 100;
-                ServicePointManager.Expect100Continue = false;
-                ServicePointManager.UseNagleAlgorithm = false; // Disable Nagle's algorithm
-                
-                // Calculate optimal part size based on file size
-                int partCount = Environment.ProcessorCount;
-                if (totalSize > 100 * 1024 * 1024) // If file is larger than 100MB
-                {
-                    partCount = Math.Min(partCount * 2, Environment.ProcessorCount); // Double the parts, max processor count
-                }
-                
-                // Prepare for multi-part download
-                var partSize = totalSize / partCount;
-                var tasks = new List<Task>();
-                var partFiles = new string[partCount];
-                
-                progress.Report($"Downloading with {partCount} threads...");
-
-                // Create download task for each part
-                for (int i = 0; i < partCount; i++)
-                {
-                    var partIndex = i;
-                    var start = partSize * i;
-                    var end = (i == partCount - 1) ? totalSize - 1 : start + partSize - 1;
-                    partFiles[i] = Path.Combine(Path.GetTempPath(), $"part_{Guid.NewGuid()}.tmp");
-
-                    tasks.Add(DownloadPartAsync(zipUrl, partFiles[i], start, end, totalSize, progress));
-                }
-
-                await Task.WhenAll(tasks);
-
-                // Parts are ready, now extract
-                progress.Report("Combining downloaded parts...");
-                await CombinePartsAsync(partFiles, tempZipPath);
-
-                // Part files are cleaned up
-                foreach (var partFile in partFiles)
-                {
-                    try { File.Delete(partFile); } catch { }
-                }
-
-                // ZIP file is ready, now extract
-                progress.Report("Starting extraction...");
-                await ExtractZipParallelAsync(tempZipPath, destinationFolder, progress);
-
-                await Dispatcher.InvokeAsync(() =>
-                {
-                    UpdateProgressBar(0, 0, 0, 0, string.Empty);
-                    HideDownloadLabels();
-                    UpdateVersionLabel();
-                    ChangelogTab.IsEnabled = true;
-                });
-                progress.Report("Ready");
-            }
-            catch (Exception ex)
-            {
-                LogMessage($"[ERROR] Error downloading and extracting zip file: {ex.Message}");
-                MessageBox.Show($"Error downloading and extracting zip file: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-            finally
-            {
-                // Reset counters after download
-                _downloadedSize = 0;
-                _lastBytesRead = 0;
-                await CleanupTempFileAsync(tempZipPath);
-            }
-        }
-
-        private async Task DownloadPartAsync(string url, string partPath, long start, long end, long totalSize, IProgress<string> progress)
-        {
-            using var client = new HttpClient();
-            // Optimize connection settings
-            client.DefaultRequestHeaders.ConnectionClose = false; // Keep connection alive
-            client.DefaultRequestHeaders.Add("Range", $"bytes={start}-{end}");
-            client.Timeout = Timeout.InfiniteTimeSpan;
-            
-            // Increase buffer size for better throughput
-            const int bufferSize = 262144; // 256KB buffer (increased from 81920)
-            
-            using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
-            using var stream = await response.Content.ReadAsStreamAsync();
-            // Use FileOptions.WriteThrough for better write performance
-            using var fileStream = new FileStream(partPath, FileMode.Create, FileAccess.Write, 
-                FileShare.None, bufferSize, FileOptions.WriteThrough | FileOptions.Asynchronous);
-            
-            var buffer = new byte[bufferSize];
-            long downloadedBytes = 0;
-            
-            while (true)
-            {
-                int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
-                if (bytesRead == 0) break;
-                
-                await fileStream.WriteAsync(buffer, 0, bytesRead);
-                downloadedBytes += bytesRead;
-                
-                var now = DateTime.Now;
-                var newTotal = Interlocked.Add(ref _downloadedSize, bytesRead);
-                
-                // Reduce UI updates to every 500ms instead of every second
-                var timeDiff = (now - _lastSpeedUpdate).TotalSeconds;
-                if (timeDiff >= 0.5)
-                {
-                    var bytesDiff = newTotal - _lastBytesRead;
-                    var currentSpeed = bytesDiff / timeDiff;
-                    var progressPercentage = (newTotal * 100.0) / totalSize;
-
-                    await Dispatcher.InvokeAsync(() =>
-                    {
-                        progressBar.Value = progressPercentage;
-                        netSpeedLabel.Content = $"Speed: {currentSpeed / 1048576.0:F2} MB/s";
-                        progressLabel.Content = $"Downloaded: {newTotal / 1048576.0:F2} MB / {totalSize / 1048576.0:F2} MB";
-                    }, DispatcherPriority.Normal); // Normal priority for UI updates
-
-                    _lastBytesRead = newTotal;
-                    _lastSpeedUpdate = now;
-                }
-            }
-        }
-
-        private async Task CombinePartsAsync(string[] partFiles, string outputPath)
-        {
-            using var outputStream = new FileStream(outputPath, FileMode.Create);
-            foreach (var partFile in partFiles)
-            {
-                using var inputStream = new FileStream(partFile, FileMode.Open);
-                await inputStream.CopyToAsync(outputStream);
-            }
-        }
-
-        private async Task ExtractZipParallelAsync(string zipPath, string destinationFolder, IProgress<string> progress)
-        {
-            try
-            {
-                progress.Report("Extracting mod package...");
-                await Task.Run(() =>
-                {
-                    using (var archive = ZipFile.OpenRead(zipPath))
-                    {
-                        int totalEntries = archive.Entries.Count;
-                        int currentEntry = 0;
-
-                        foreach (var entry in archive.Entries)
-                        {
-                            currentEntry++;
-                            string fullPath = Path.GetFullPath(Path.Combine(destinationFolder, entry.FullName));
-
-                            if (entry.FullName.EndsWith("/"))
-                            {
-                                Directory.CreateDirectory(fullPath);
-                            }
-                            else
-                            {
-                                Directory.CreateDirectory(Path.GetDirectoryName(fullPath));
-                                for (int retries = 0; retries < 3; retries++)
-                                {
-                                    try
-                                    {
-                                        entry.ExtractToFile(fullPath, true);
-                                        break;
-                                    }
-                                    catch (IOException) when (retries < 2)
-                                    {
-                                        Task.Delay(1000).Wait();
-                                    }
-                                }
-                            }
-
-                            var extractProgress = (double)currentEntry / totalEntries * 100;
-                            Dispatcher.Invoke(() =>
-                            {
-                                progressBar.Value = extractProgress;
-                                progressLabel.Content = $"Extracting: {currentEntry}/{totalEntries} files";
-                            });
-                        }
-                    }
-                });
-
-                await Dispatcher.InvokeAsync(() =>
-                {
-                    UpdateProgressBar(0, 0, 0, 0, string.Empty);
-                    HideDownloadLabels();
-                    UpdateVersionLabel();
-                    ChangelogTab.IsEnabled = true;
-                });
-                progress.Report("Ready");
-            }
-            catch (Exception ex)
-            {
-                LogMessage($"[CRITICAL] ZIP extraction failed: {ex.Message}");
-                throw new Exception("Error occurred while extracting ZIP file.", ex);
-            }
-        }
-
-        private async Task UpdateDownloadProgressAsync(double percentage, long downloaded, long total)
-        {
-            await Dispatcher.InvokeAsync(() =>
-            {
-                progressBar.Value = percentage;
-                progressLabel.Content = $"Downloaded: {downloaded / 1048576.0:F2} MB / {total / 1048576.0:F2} MB";
-            });
-        }
-
-        private async Task CleanupTempFileAsync(string tempFile)
-        {
-            for (int i = 0; i < 5; i++)
-            {
-                try
-                {
-                    if (File.Exists(tempFile))
-                    {
-                        File.Delete(tempFile);
-                    }
-                    break;
-                }
-                catch when (i < 4)
-                {
-                    await Task.Delay(1000);
-                }
-                catch (Exception ex)
-                {
-                    await Dispatcher.InvokeAsync(() =>
-                    {
-                        MessageBox.Show($"Unable to delete temporary file: {tempFile}\nError: {ex.Message}", 
-                            "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    });
-                }
-            }
-        }
-
-        private void UpdateProgressBar(int progressPercentage, long totalRead, long totalBytes, double downloadSpeed, string status)
-        {
-            Dispatcher.Invoke(() =>
-            {
-                var now = DateTime.Now;
-                var timeDiff = (now - _lastSpeedUpdate).TotalSeconds;
-                
-                if (timeDiff >= 1) // Update speed only once per second
-                {
-                    var bytesDiff = totalRead - _lastBytesRead;
-                    var currentSpeed = bytesDiff / timeDiff; // Bytes per second
-
-                    _lastBytesRead = totalRead;
-                    _lastSpeedUpdate = now;
-
-                    progressBar.Value = progressPercentage;
-                    statusLabel.Content = status;
-                    netSpeedLabel.Content = $"Speed: {currentSpeed / 1048576.0:F2} MB/s";
-                    progressLabel.Content = $"Downloaded: {totalRead / 1048576.0:F2} MB / {totalBytes / 1048576.0:F2} MB";
-                }
-                else
-                {
-                    // Only update progress info, not speed
-                    progressBar.Value = progressPercentage;
-                    statusLabel.Content = status;
-                    progressLabel.Content = $"Downloaded: {totalRead / 1048576.0:F2} MB / {totalBytes / 1048576.0:F2} MB";
-                }
-            });
-        }
-
-        private void UpdateDownloadLabel() => Dispatcher.Invoke(() =>
-            progressLabel.Content = $"Downloaded: {_downloadedSize / 1048576.0:F2} MB / {_totalDownloadSize / 1048576.0:F2} MB");
 
         private void UpdateVersionLabel() => Dispatcher.Invoke(() => versionLabel.Content = _jsonVersion ?? "");
 
         private void LaunchGameButton_Click(object sender, RoutedEventArgs e)
         {
-            string batPath = Path.Combine(_bin32Folder, GAME_STARTER_FILE_NAME);
-            if (File.Exists(batPath))
+            string execPath = Path.Combine(_bin32Folder, GAME_STARTER_FILE_NAME);
+            if (File.Exists(execPath))
             {
                 try
                 {
-                    Process.Start(batPath);
+                    Process.Start(execPath);
                     Application.Current.Shutdown();
                 }
                 catch (Exception ex)
                 {
-                    LogMessage($"[ERROR] Error launching the game: {ex.Message}");
                     MessageBox.Show($"Error launching the game: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
             else
             {
-                LogMessage($"[ERROR] Game executable not found!");
                 MessageBox.Show("Game executable not found!", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -899,53 +625,44 @@ namespace Crysis2_MP_Launcher
             }
         }
 
-
-        private void LogMessage(string message)
-        {
-            if (ENABLE_LOGGING != 1) return;
-            
-            try
-            {
-                string logPath = Path.Combine(_modSpyFolder, "launcher.log");
-                string timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
-                string logMessage = $"[{timestamp}] {message}";
-
-                // Write to log file (append mode)
-                File.AppendAllText(logPath, logMessage + Environment.NewLine);
-
-        #if DEBUG
-                Debug.WriteLine(logMessage);
-        #endif
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Logging failed: {ex.Message}");
-            }
-        }
+        public static void LogMessage(string message) => Logger.LogMessage(message);
 
         private async Task SetBackgroundImageAsync()
         {
-            string remoteUrl = $"{_serverBaseUrl}/openspymod/background.png";
             string embeddedPath = "pack://application:,,,/resources/background.jpg";
 
-            try
+            if (!string.IsNullOrWhiteSpace(_serverBaseUrl))
             {
-                using (var httpClient = new HttpClient())
+                string remoteUrl = $"{_serverBaseUrl}/openspymod/background.png";
+                try
                 {
-                    var response = await httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Head, remoteUrl));
-                    if (response.IsSuccessStatusCode)
+                    using (var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) })
                     {
-                        BackgroundImage.Source = new BitmapImage(new Uri(remoteUrl));
-                        return;
+                        var response = await httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Head, remoteUrl)).ConfigureAwait(false);
+                        if (response.IsSuccessStatusCode)
+                        {
+                            await Dispatcher.InvokeAsync(() =>
+                            {
+                                BackgroundImage.Source = new BitmapImage(new Uri(remoteUrl));
+                            });
+                            return;
+                        }
                     }
                 }
+                catch (Exception ex)
+                {
+                    LogMessage($"[ERROR] Background image check failed: {ex.Message}");
+                }
             }
-            catch (Exception ex)
+
+            await Dispatcher.InvokeAsync(() =>
             {
-                LogMessage($"[ERROR] Background image check failed: {ex.Message}");
-            }
-            // Fallback: show embedded image
-            BackgroundImage.Source = new BitmapImage(new Uri(embeddedPath));
+                try
+                {
+                    BackgroundImage.Source = new BitmapImage(new Uri(embeddedPath));
+                }
+                catch { }
+            });
         }
     }
 }
